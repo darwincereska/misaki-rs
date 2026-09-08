@@ -10,6 +10,7 @@ pub struct MToken {
     pub end_ts: Option<f64>,
     #[serde(rename = "_")]
     pub underscore: Option<Underscore>,
+    pub rating: Option<i32>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -38,6 +39,7 @@ impl MToken {
                 prespace: false,
                 ..Default::default()
             }),
+            rating: None
         }
     }
 

@@ -341,8 +341,9 @@ impl G2P {
                 let ctx = Some(&contexts[i]);
 
                 // Use get_word which handles special cases, lookup, and stemming
-                if let Some((ps, _)) = self.lexicon.get_word(&word, &tag, stress, ctx) {
+                if let Some((ps, rating)) = self.lexicon.get_word(&word, &tag, stress, ctx) {
                     tokens[i].phonemes = Some(ps);
+                    tokens[i].rating = Some(rating)
                 }
 
                 if tokens[i].phonemes.is_none() {
@@ -358,7 +359,7 @@ impl G2P {
                     } else if self.is_number(&word) {
                         let spoken = self.convert_number(&word);
                         if spoken != word {
-                            let (p, _) = self.g2p(&spoken)?;
+                            let (p, t) = self.g2p(&spoken)?;
                             tokens[i].phonemes = Some(p);
                         }
                     }
