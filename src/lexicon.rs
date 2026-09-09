@@ -1,4 +1,4 @@
-use crate::data;
+use crate::{data, pronunciation::PronunciationSource};
 use crate::language::Language;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -154,7 +154,7 @@ impl Lexicon {
         tag: &str,
         stress: Option<f64>,
         ctx: Option<&TokenContext>,
-    ) -> Option<(String, i32)> {
+    ) -> Option<(String, i32, Vec<PronunciationSource>)> {
         let mut current_word = word.to_string();
         let mut is_nnp = false;
 
@@ -165,10 +165,12 @@ impl Lexicon {
 
         let mut ps = None;
         let mut rating = 0;
+        let mut provenance = Vec::<PronunciationSource>::new();
 
         // Try golds first
         if let Some(entry) = Self::entry(&self.golds, &current_word) {
             ps = self.resolve_phonemes(entry, tag, ctx);
+            provenance.push(PronunciationSource::GoldDictionary);
             rating = 4;
         }
 
@@ -176,6 +178,7 @@ impl Lexicon {
         if ps.is_none() && !is_nnp {
             if let Some(entry) = Self::entry(&self.silvers, &current_word) {
                 ps = self.resolve_phonemes(entry, tag, ctx);
+                provenance.push(PronunciationSource::SilverDictionary);
                 rating = 3;
             }
         }
@@ -192,17 +195,17 @@ impl Lexicon {
         // Special NNP handling if not found or no primary stress
         if ps.is_none() || (is_nnp && !ps.as_ref()?.contains('ˈ')) {
             if is_nnp {
-                if let Some((nnp_ps, nnp_rating)) = self.get_nnp(&current_word) {
+                if let Some((nnp_ps, nnp_rating, _)) = self.get_nnp(&current_word) {
                     ps = Some(nnp_ps);
                     rating = nnp_rating;
                 }
             }
         }
 
-        ps.map(|p| (self.apply_stress(&p, stress), rating))
+        ps.map(|p| (self.apply_stress(&p, stress), rating, provenance))
     }
 
-    fn get_nnp(&self, word: &str) -> Option<(String, i32)> {
+    fn get_nnp(&self, word: &str) -> Option<(String, i32, Vec<PronunciationSource>)> {
         let mut ps_parts = Vec::new();
         for c in word.chars() {
             if c.is_alphabetic() {
@@ -228,9 +231,9 @@ impl Lexicon {
         if let Some(idx) = stressed.rfind(secondary) {
             let mut result = stressed.clone();
             result.replace_range(idx..idx + secondary.len_utf8(), &primary.to_string());
-            Some((result, 3))
+            Some((result, 3, Vec::new()))
         } else {
-            Some((stressed, 3))
+            Some((stressed, 3, Vec::new()))
         }
     }
 
@@ -302,7 +305,7 @@ impl Lexicon {
         tag: &str,
         stress: Option<f64>,
         ctx: Option<&TokenContext>,
-    ) -> Option<(String, i32)> {
+    ) -> Option<(String, i32, Vec<PronunciationSource>)> {
         let lower = word.to_lowercase();
         if lower.len() < 3 || !lower.ends_with('s') {
             return None;
@@ -324,8 +327,9 @@ impl Lexicon {
             return None;
         };
 
-        let (stem_ps, rating) = self.lookup(stem, tag, stress, ctx)?;
-        Some((self.append_s(&stem_ps), rating))
+        let (stem_ps, rating, mut provenance) = self.lookup(stem, tag, stress, ctx)?;
+        provenance.push(PronunciationSource::Stemming);
+        Some((self.append_s(&stem_ps), rating, provenance))
     }
 
     pub fn append_s(&self, stem: &str) -> String {
@@ -349,7 +353,7 @@ impl Lexicon {
         tag: &str,
         stress: Option<f64>,
         ctx: Option<&TokenContext>,
-    ) -> Option<(String, i32)> {
+    ) -> Option<(String, i32, Vec<PronunciationSource>)> {
         let lower = word.to_lowercase();
         if lower.len() < 4 || !lower.ends_with('d') {
             return None;
@@ -366,8 +370,9 @@ impl Lexicon {
             return None;
         };
 
-        let (stem_ps, rating) = self.lookup(stem, tag, stress, ctx)?;
-        Some((self.append_ed(&stem_ps), rating))
+        let (stem_ps, rating, mut provenance) = self.lookup(stem, tag, stress, ctx)?;
+        provenance.push(PronunciationSource::Stemming);
+        Some((self.append_ed(&stem_ps), rating, provenance))
     }
 
     pub fn append_ed(&self, stem: &str) -> String {
@@ -434,7 +439,7 @@ impl Lexicon {
         tag: &str,
         stress: Option<f64>,
         ctx: Option<&TokenContext>,
-    ) -> Option<(String, i32)> {
+    ) -> Option<(String, i32, Vec<PronunciationSource>)> {
         let lower = word.to_lowercase();
         if lower.len() < 5 || !lower.ends_with("ing") {
             return None;
@@ -456,9 +461,12 @@ impl Lexicon {
                     if (last == second_last && "bcdgklmnprstvxz".contains(last))
                         || (last == 'k' && second_last == 'c')
                     {
+                        let (_ ,rating, mut provenance) = self.lookup(stem_candidate, tag, stress, ctx)?;
+                        provenance.push(PronunciationSource::Stemming);
                         return Some((
                             self.append_ing(stem_candidate)?,
-                            self.lookup(stem_candidate, tag, stress, ctx)?.1,
+                            rating,
+                            provenance
                         ));
                     }
                 }
@@ -468,8 +476,9 @@ impl Lexicon {
             return None;
         };
 
-        let (stem_ps, rating) = self.lookup(&stem, tag, stress, ctx)?;
-        Some((self.append_ing(&stem_ps)?, rating))
+        let (stem_ps, rating, mut provenance) = self.lookup(&stem, tag, stress, ctx)?;
+        provenance.push(PronunciationSource::Stemming);
+        Some((self.append_ing(&stem_ps)?, rating, provenance))
     }
 
     pub fn get_special_case(
@@ -478,7 +487,7 @@ impl Lexicon {
         tag: &str,
         stress: Option<f64>,
         ctx: Option<&TokenContext>,
-    ) -> Option<(String, i32)> {
+    ) -> Option<(String, i32, Vec<PronunciationSource>)> {
         let add_symbols = get_add_symbols();
         let symbols = get_symbols();
 
@@ -499,6 +508,8 @@ impl Lexicon {
                     "ˈA".to_string()
                 },
                 4,
+                vec![PronunciationSource::GoldDictionary]
+
             ));
         } else if word == "am" || word == "Am" || word == "AM" {
             if tag.starts_with("NN") {
@@ -509,21 +520,21 @@ impl Lexicon {
                 || stress.map(|s| s > 0.0).unwrap_or(false)
             {
                 if let Some(PhonemeEntry::Simple(ps)) = self.golds.get("am") {
-                    return Some((ps.clone(), 4));
+                    return Some((ps.clone(), 4, vec![PronunciationSource::GoldDictionary]));
                 }
             }
-            return Some(("ɐm".to_string(), 4));
+            return Some(("ɐm".to_string(), 4, vec![PronunciationSource::GoldDictionary]));
         } else if word == "an" || word == "An" || word == "AN" {
             if word == "AN" && tag.starts_with("NN") {
                 return self.get_nnp(word);
             }
-            return Some(("ɐn".to_string(), 4));
+            return Some(("ɐn".to_string(), 4, vec![PronunciationSource::GoldDictionary]));
         } else if word == "I" && tag == "PRP" {
-            return Some(("ˌI".to_string(), 4));
+            return Some(("ˌI".to_string(), 4, vec![PronunciationSource::GoldDictionary]));
         } else if (word == "by" || word == "By" || word == "BY")
             && Lexicon::get_parent_tag(tag) == "ADV"
         {
-            return Some(("bˈI".to_string(), 4));
+            return Some(("bˈI".to_string(), 4, vec![PronunciationSource::GoldDictionary]));
         } else if word == "to" || word == "To" || (word == "TO" && (tag == "TO" || tag == "IN")) {
             let future_vowel = ctx.and_then(|c| c.future_vowel);
             if let Some(PhonemeEntry::Simple(ps)) = self.golds.get("to") {
@@ -534,6 +545,7 @@ impl Lexicon {
                         Some(true) => "tʊ".to_string(),
                     },
                     4,
+                    vec![PronunciationSource::GoldDictionary]
                 ));
             }
         } else if word == "in" || word == "In" || (word == "IN" && tag != "NNP") {
@@ -543,7 +555,7 @@ impl Lexicon {
             } else {
                 ""
             };
-            return Some((format!("{}{}", stress_mark, "ɪn"), 4));
+            return Some((format!("{}{}", stress_mark, "ɪn"), 4, vec![PronunciationSource::GoldDictionary]));
         } else if word == "the" || word == "The" || (word == "THE" && tag == "DT") {
             let future_vowel = ctx.and_then(|c| c.future_vowel);
             return Some((
@@ -553,6 +565,7 @@ impl Lexicon {
                     "ðə".to_string()
                 },
                 4,
+                vec![PronunciationSource::GoldDictionary]
             ));
         } else if tag == "IN" && (word.to_lowercase() == "vs" || word.to_lowercase() == "vs.") {
             return self.lookup("versus", "NN", None, ctx);
@@ -560,13 +573,13 @@ impl Lexicon {
             if (tag == "VBD" || tag == "JJ") && ctx.map(|c| c.future_to).unwrap_or(false) {
                 if let Some(PhonemeEntry::Tagged(map)) = self.golds.get("used") {
                     if let Some(Some(ps)) = map.get("VBD") {
-                        return Some((ps.clone(), 4));
+                        return Some((ps.clone(), 4, vec![PronunciationSource::GoldDictionary]));
                     }
                 }
             }
             if let Some(PhonemeEntry::Tagged(map)) = self.golds.get("used") {
                 if let Some(Some(ps)) = map.get("DEFAULT") {
-                    return Some((ps.clone(), 4));
+                    return Some((ps.clone(), 4, vec![PronunciationSource::GoldDictionary]));
                 }
             }
         }
@@ -616,7 +629,7 @@ impl Lexicon {
         tag: &str,
         stress: Option<f64>,
         ctx: Option<&TokenContext>,
-    ) -> Option<(String, i32)> {
+    ) -> Option<(String, i32, Vec<PronunciationSource>)> {
         // First try special cases
         if let Some(result) = self.get_special_case(word, tag, stress, ctx) {
             return Some(result);
@@ -700,7 +713,7 @@ mod tests {
     }
 
     fn phonemes(lexicon: &Lexicon, word: &str) -> Option<String> {
-        lexicon.lookup(word, "NN", None, None).map(|(ps, _)| ps)
+        lexicon.lookup(word, "NN", None, None).map(|(ps, _, _)| ps)
     }
 
     #[test]
@@ -732,7 +745,7 @@ mod tests {
     #[test]
     fn a_proper_noun_is_known_from_its_lowercase_entry() {
         let lexicon = lexicon(&[("toml", "tˈɑːməl")]);
-        let (ps, _) = lexicon
+        let (ps, _, _) = lexicon
             .get_word("Toml", "NNP", None, None)
             .expect("a known word");
         assert_eq!(ps, "tˈɑːməl");

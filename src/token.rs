@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::pronunciation::PronunciationSource;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MToken {
     pub text: String,
@@ -10,7 +12,8 @@ pub struct MToken {
     pub end_ts: Option<f64>,
     #[serde(rename = "_")]
     pub underscore: Option<Underscore>,
-    pub rating: Option<i32>
+    pub rating: Option<i32>,
+    pub provenance: Vec<PronunciationSource>
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -21,7 +24,6 @@ pub struct Underscore {
     pub currency: Option<String>,
     pub num_flags: String,
     pub prespace: bool,
-    pub rating: Option<i32>,
 }
 
 impl MToken {
@@ -39,7 +41,8 @@ impl MToken {
                 prespace: false,
                 ..Default::default()
             }),
-            rating: None
+            rating: None,
+            provenance: Vec::new()
         }
     }
 
@@ -58,7 +61,6 @@ impl MToken {
             currency: None,
             num_flags: String::new(),
             prespace: false,
-            rating: None,
         };
         self.underscore.as_ref().unwrap_or(&DEFAULT_UNDERSCORE)
     }

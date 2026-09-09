@@ -4,6 +4,7 @@ use crate::language::Language;
 use crate::fallback::EspeakFallback;
 use crate::languages::{LanguageRules, english::English};
 use crate::lexicon::Lexicon;
+use crate::pronunciation::PronunciationSource;
 use thiserror::Error;
 use crate::tagger::PerceptronTagger;
 use crate::token::MToken;
@@ -341,9 +342,10 @@ impl G2P {
                 let ctx = Some(&contexts[i]);
 
                 // Use get_word which handles special cases, lookup, and stemming
-                if let Some((ps, rating)) = self.lexicon.get_word(&word, &tag, stress, ctx) {
+                if let Some((ps, rating, provenance)) = self.lexicon.get_word(&word, &tag, stress, ctx) {
                     tokens[i].phonemes = Some(ps);
-                    tokens[i].rating = Some(rating)
+                    tokens[i].rating = Some(rating);
+                    tokens[i].provenance = provenance;
                 }
 
                 if tokens[i].phonemes.is_none() {
@@ -359,7 +361,7 @@ impl G2P {
                     } else if self.is_number(&word) {
                         let spoken = self.convert_number(&word);
                         if spoken != word {
-                            let (p, t) = self.g2p(&spoken)?;
+                            let (p, _) = self.g2p(&spoken)?;
                             tokens[i].phonemes = Some(p);
                         }
                     }
@@ -368,6 +370,7 @@ impl G2P {
                 if tokens[i].phonemes.is_none() {
                     if let Some(ps) = self.rules.apply_rules(&word, &tag, &self.lexicon) {
                         tokens[i].phonemes = Some(ps);
+                        tokens[i].provenance.push(PronunciationSource::RuleBased);
                     }
                 }
 
@@ -379,6 +382,7 @@ impl G2P {
                             match fallback.phonemize(&word) {
                                 Ok(ps) => {
                                     tokens[i].phonemes = Some(ps);
+                                    tokens[i].provenance.push(PronunciationSource::Fallback);
                                     handled = true;
                                 }
                                 Err(e) => {
@@ -396,6 +400,7 @@ impl G2P {
                                 char_ps.push(p);
                             }
                             tokens[i].phonemes = Some(char_ps.join(" "));
+                            tokens[i].provenance.push(PronunciationSource::Character);
                         }
                     } else {
                         // Try to normalize the character or return unknown

@@ -6,6 +6,7 @@ pub mod data;
 pub mod tagger;
 pub mod g2p;
 pub mod fallback;
+pub mod pronunciation;
 
 pub use g2p::G2P;
 pub use token::MToken;
